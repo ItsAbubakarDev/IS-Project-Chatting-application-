@@ -1,6 +1,6 @@
 """
-Enhanced API Client with Diffie-Hellman key exchange for true E2EE
-Each chat session uses a unique derived key
+Fixed API Client with TRUE Diffie-Hellman key exchange
+Private keys NEVER leave the client device
 """
 import requests
 import json
@@ -10,49 +10,104 @@ from typing import Optional, Callable, Dict
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives.asymmetric import dh
 from cryptography.hazmat.backends import default_backend
 import base64
 
 
-class E2EEManager:
-    """Manages per-chat encryption keys using DH"""
+class DHKeyExchange:
+    """
+    CLIENT-SIDE DH key exchange
+    Private key NEVER leaves this class
+    """
     
-    def __init__(self):
-        self.chat_keys: Dict[str, str] = {}  # username -> encryption_key
+    def __init__(self, dh_parameters):
+        """Generate keypair using shared DH parameters"""
+        self.private_key = dh_parameters.generate_private_key()
+        self.public_key = self.private_key.public_key()
     
-    def generate_chat_key(self, user1_public: str, user2_public: str) -> str:
+    def get_public_key_bytes(self) -> str:
+        """Get public key as base64 string for server"""
+        public_bytes = self.public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        return base64.b64encode(public_bytes).decode('utf-8')
+    
+    def compute_shared_secret(self, peer_public_key_str: str) -> bytes:
         """
-        Generate a deterministic shared key for a chat between two users
-        Both users will derive the same key
+        Compute shared secret using OUR private key and THEIR public key
+        This is the core of TRUE DH - happens CLIENT-SIDE ONLY
         """
-        # Sort public keys to ensure deterministic ordering
-        keys = sorted([user1_public, user2_public])
-        combined = f"{keys[0]}:{keys[1]}".encode('utf-8')
+        peer_public_bytes = base64.b64decode(peer_public_key_str)
+        peer_public_key = serialization.load_pem_public_key(
+            peer_public_bytes,
+            backend=default_backend()
+        )
         
-        # Derive key from combined public keys
+        # THE MAGIC: Use our private key with their public key
+        shared_secret = self.private_key.exchange(peer_public_key)
+        return shared_secret
+    
+    def derive_encryption_key(self, shared_secret: bytes, salt: bytes) -> str:
+        """Derive Fernet key from shared secret"""
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
-            salt=b'chat_key_salt_v1',
+            salt=salt,
             iterations=100000,
             backend=default_backend()
         )
-        key = base64.urlsafe_b64encode(kdf.derive(combined))
+        key = base64.urlsafe_b64encode(kdf.derive(shared_secret))
         return key.decode('utf-8')
     
-    def set_chat_key(self, username: str, key: str):
-        """Store encryption key for a specific user chat"""
-        self.chat_keys[username] = key
+    @staticmethod
+    def create_chat_salt(user1: str, user2: str) -> bytes:
+        """Create deterministic salt for a chat"""
+        users = sorted([user1, user2])
+        chat_id = f"{users[0]}:{users[1]}"
+        return chat_id.encode('utf-8')
+
+
+class E2EEManager:
+    """
+    Manages per-chat encryption using TRUE DH
+    Stores derived keys (not private keys!)
+    """
+    
+    def __init__(self, my_dh: DHKeyExchange, my_username: str):
+        self.my_dh = my_dh  # Our DH instance (contains private key)
+        self.my_username = my_username
+        self.chat_keys: Dict[str, str] = {}  # username -> derived_fernet_key
+        self.peer_public_keys: Dict[str, str] = {}  # username -> their_public_key
+    
+    def setup_chat_key(self, peer_username: str, peer_public_key: str):
+        """
+        Setup encryption key for a chat using TRUE DH
+        Computes: shared_secret = my_private.exchange(their_public)
+        """
+        # Store peer's public key
+        self.peer_public_keys[peer_username] = peer_public_key
+        
+        # Compute shared secret using OUR private key
+        shared_secret = self.my_dh.compute_shared_secret(peer_public_key)
+        
+        # Derive encryption key with chat-specific salt
+        chat_salt = DHKeyExchange.create_chat_salt(self.my_username, peer_username)
+        encryption_key = self.my_dh.derive_encryption_key(shared_secret, chat_salt)
+        
+        # Store the derived key
+        self.chat_keys[peer_username] = encryption_key
     
     def get_chat_key(self, username: str) -> Optional[str]:
-        """Get encryption key for a specific user chat"""
+        """Get encryption key for a specific chat"""
         return self.chat_keys.get(username)
     
     def encrypt_message(self, message: str, username: str) -> str:
         """Encrypt message for specific user"""
         key = self.get_chat_key(username)
         if not key:
-            raise ValueError(f"No encryption key for {username}")
+            raise ValueError(f"No encryption key for {username}. Call setup_chat_key first.")
         
         fernet = Fernet(key.encode())
         encrypted = fernet.encrypt(message.encode())
@@ -70,7 +125,7 @@ class E2EEManager:
 
 
 class SecureChatAPI:
-    """Enhanced API client with E2EE using Diffie-Hellman"""
+    """Enhanced API client with TRUE E2EE using Diffie-Hellman"""
     
     def __init__(self, base_url: str = "http://127.0.0.1:8000", use_ssl: bool = False):
         self.base_url = base_url
@@ -83,29 +138,76 @@ class SecureChatAPI:
         self.token: Optional[str] = None
         self.username: Optional[str] = None
         self.user_id: Optional[int] = None
-        self.my_public_key: Optional[str] = None
         
-        # E2EE manager for per-chat keys
-        self.e2ee = E2EEManager()
+        # DH components (private key stays here!)
+        self.dh_parameters = None  # Shared parameters from server
+        self.my_dh: Optional[DHKeyExchange] = None  # Our keypair
+        self.my_public_key: Optional[str] = None  # Our public key
+        
+        # E2EE manager
+        self.e2ee: Optional[E2EEManager] = None
         
         self.ws: Optional[websocket.WebSocketApp] = None
         self.ws_thread: Optional[threading.Thread] = None
         self.message_callback: Optional[Callable] = None
         
-        # SSL verification (disable for self-signed certs in dev)
-        self.verify_ssl = False  # Set to True in production with proper certs
+        self.verify_ssl = False
+        
+        # Get DH parameters from server
+        self._fetch_dh_parameters()
+    
+    def _fetch_dh_parameters(self):
+        """
+        Fetch shared DH parameters from server
+        These are public and shared by all users
+        """
+        try:
+            response = requests.get(f"{self.base_url}/dh-parameters", verify=self.verify_ssl)
+            if response.status_code == 200:
+                params_b64 = response.json()["parameters"]
+                params_bytes = base64.b64decode(params_b64)
+                self.dh_parameters = serialization.load_pem_parameters(
+                    params_bytes,
+                    backend=default_backend()
+                )
+                print("✅ DH parameters received from server")
+        except Exception as e:
+            print(f"⚠️  Could not fetch DH parameters: {e}")
+            # Fallback: generate local parameters (not ideal for production)
+            self.dh_parameters = dh.generate_parameters(
+                generator=2, key_size=2048, backend=default_backend()
+            )
+    
+    def _generate_keypair(self):
+        """
+        Generate client-side DH keypair
+        PRIVATE KEY STAYS ON CLIENT - NEVER SENT TO SERVER
+        """
+        if not self.dh_parameters:
+            raise ValueError("DH parameters not available")
+        
+        self.my_dh = DHKeyExchange(self.dh_parameters)
+        self.my_public_key = self.my_dh.get_public_key_bytes()
+        print("✅ Client keypair generated (private key stays local)")
     
     # ========== AUTHENTICATION ==========
     
     def register(self, username: str, email: str, password: str) -> Dict:
-        """Register a new user"""
+        """
+        Register a new user
+        Client generates keypair and sends ONLY public key
+        """
+        # Generate client-side keypair
+        self._generate_keypair()
+        
         try:
             response = requests.post(
                 f"{self.base_url}/register",
                 json={
                     "username": username,
                     "email": email,
-                    "password": password
+                    "password": password,
+                    "public_key": self.my_public_key  # Only public key sent!
                 },
                 verify=self.verify_ssl
             )
@@ -120,7 +222,10 @@ class SecureChatAPI:
             return {"success": False, "error": str(e)}
     
     def login(self, username: str, password: str) -> Dict:
-        """Login and get JWT token + public key"""
+        """
+        Login and initialize E2EE manager
+        If user doesn't have a keypair, generate one
+        """
         try:
             response = requests.post(
                 f"{self.base_url}/login",
@@ -136,7 +241,24 @@ class SecureChatAPI:
                 self.token = data["access_token"]
                 self.username = data["username"]
                 self.user_id = data["user_id"]
-                self.my_public_key = data.get("public_key")
+                
+                # Get user's stored public key or generate new one
+                stored_public_key = data.get("public_key")
+                
+                if not stored_public_key:
+                    # User registered before DH - generate keypair now
+                    self._generate_keypair()
+                    # Update server with new public key
+                    self._update_public_key()
+                else:
+                    # User has public key but we need to generate local keypair
+                    # (we don't have their private key - it was never stored!)
+                    self._generate_keypair()
+                    # Update server with our new public key
+                    self._update_public_key()
+                
+                # Initialize E2EE manager
+                self.e2ee = E2EEManager(self.my_dh, self.username)
                 
                 return {"success": True, "data": data}
             else:
@@ -145,6 +267,19 @@ class SecureChatAPI:
                 
         except Exception as e:
             return {"success": False, "error": str(e)}
+    
+    def _update_public_key(self):
+        """Update our public key on server"""
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            requests.put(
+                f"{self.base_url}/users/me/public-key",
+                headers=headers,
+                json={"public_key": self.my_public_key},
+                verify=self.verify_ssl
+            )
+        except Exception as e:
+            print(f"⚠️  Could not update public key: {e}")
     
     def logout(self) -> Dict:
         """Logout"""
@@ -167,7 +302,10 @@ class SecureChatAPI:
     # ========== USER MANAGEMENT ==========
     
     def get_users(self) -> Dict:
-        """Get list of all users with their public keys"""
+        """
+        Get list of all users with their public keys
+        Setup encryption keys using TRUE DH
+        """
         try:
             headers = {"Authorization": f"Bearer {self.token}"}
             response = requests.get(
@@ -179,14 +317,13 @@ class SecureChatAPI:
             if response.status_code == 200:
                 users = response.json()
                 
-                # Setup encryption keys for each user
+                # Setup encryption keys using TRUE DH
                 for user in users:
-                    if user.get('public_key') and self.my_public_key:
-                        chat_key = self.e2ee.generate_chat_key(
-                            self.my_public_key,
-                            user['public_key']
-                        )
-                        self.e2ee.set_chat_key(user['username'], chat_key)
+                    peer_public_key = user.get('public_key')
+                    if peer_public_key:
+                        # TRUE DH: compute shared secret with our private key
+                        self.e2ee.setup_chat_key(user['username'], peer_public_key)
+                        print(f"🔑 DH key exchange completed with {user['username']}")
                 
                 return {"success": True, "data": users}
             else:
@@ -196,7 +333,7 @@ class SecureChatAPI:
             return {"success": False, "error": str(e)}
     
     def get_user_public_key(self, username: str) -> Dict:
-        """Get a specific user's public key"""
+        """Get a specific user's public key and setup DH"""
         try:
             headers = {"Authorization": f"Bearer {self.token}"}
             response = requests.get(
@@ -207,14 +344,12 @@ class SecureChatAPI:
             
             if response.status_code == 200:
                 data = response.json()
+                peer_public_key = data.get('public_key')
                 
-                # Setup encryption key for this user
-                if data.get('public_key') and self.my_public_key:
-                    chat_key = self.e2ee.generate_chat_key(
-                        self.my_public_key,
-                        data['public_key']
-                    )
-                    self.e2ee.set_chat_key(username, chat_key)
+                if peer_public_key:
+                    # TRUE DH key exchange
+                    self.e2ee.setup_chat_key(username, peer_public_key)
+                    print(f"🔑 DH key exchange completed with {username}")
                 
                 return {"success": True, "data": data}
             else:
@@ -227,17 +362,16 @@ class SecureChatAPI:
     
     def send_message(self, receiver_username: str, message: str) -> Dict:
         """
-        Encrypt and send a message using per-chat E2EE
+        Encrypt and send a message using TRUE DH-derived key
         """
         try:
-            # Ensure we have the encryption key for this user
+            # Ensure we have encryption key
             if not self.e2ee.get_chat_key(receiver_username):
-                # Fetch user's public key
                 key_result = self.get_user_public_key(receiver_username)
                 if not key_result["success"]:
                     return {"success": False, "error": "Could not establish encryption"}
             
-            # Encrypt message
+            # Encrypt with TRUE DH-derived key
             encrypted = self.e2ee.encrypt_message(message, receiver_username)
             
             headers = {"Authorization": f"Bearer {self.token}"}
@@ -261,11 +395,8 @@ class SecureChatAPI:
             return {"success": False, "error": str(e)}
     
     def get_message_history(self, username: str) -> Dict:
-        """
-        Get message history and decrypt with per-chat key
-        """
+        """Get and decrypt message history"""
         try:
-            # Ensure we have the encryption key
             if not self.e2ee.get_chat_key(username):
                 key_result = self.get_user_public_key(username)
                 if not key_result["success"]:
@@ -284,7 +415,6 @@ class SecureChatAPI:
                 # Decrypt each message
                 for msg in messages:
                     try:
-                        # Determine which user to use for decryption
                         sender = msg["sender_username"]
                         other_user = sender if sender != self.username else msg["receiver_username"]
                         
@@ -305,12 +435,11 @@ class SecureChatAPI:
     # ========== WEBSOCKET ==========
     
     def connect_websocket(self, on_message_callback: Callable):
-        """Connect to WebSocket (WSS in production)"""
+        """Connect to WebSocket"""
         self.message_callback = on_message_callback
         
         ws_url = f"{self.ws_url.rstrip('/')}/ws/{self.username}"
         
-        # For WSS with self-signed certs
         sslopt = None
         if self.ws_url.startswith("wss://") and not self.verify_ssl:
             import ssl
@@ -324,7 +453,6 @@ class SecureChatAPI:
             on_open=self._on_ws_open
         )
         
-        # Run WebSocket in separate thread
         if sslopt:
             self.ws_thread = threading.Thread(
                 target=lambda: self.ws.run_forever(sslopt=sslopt),
@@ -338,21 +466,17 @@ class SecureChatAPI:
         self.ws_thread.start()
     
     def disconnect_websocket(self):
-        """Disconnect from WebSocket"""
         if self.ws:
             self.ws.close()
     
     def _on_ws_open(self, ws):
-        """WebSocket connection opened"""
         protocol = "WSS" if self.ws_url.startswith("wss://") else "WS"
         print(f"✅ {protocol} connected for {self.username}")
     
     def _on_ws_message(self, ws, message):
-        """Handle incoming WebSocket message"""
         try:
             data = json.loads(message)
             
-            # Decrypt message if it's a chat message
             if data.get("type") == "new_message":
                 try:
                     sender = data.get("sender")
@@ -363,7 +487,6 @@ class SecureChatAPI:
                 except Exception as e:
                     data["decrypted_content"] = f"[Decryption error: {str(e)}]"
                 
-                # Call the callback function
                 if self.message_callback:
                     self.message_callback(data)
         
@@ -371,49 +494,16 @@ class SecureChatAPI:
             print(f"WebSocket message error: {e}")
     
     def _on_ws_error(self, ws, error):
-        """WebSocket error occurred"""
         print(f"WebSocket error: {error}")
     
     def _on_ws_close(self, ws, close_status_code, close_msg):
-        """WebSocket connection closed"""
         print(f"❌ WebSocket disconnected")
     
-    # ========== UTILITY ==========
-    
     def is_logged_in(self) -> bool:
-        """Check if user is logged in"""
         return self.token is not None
 
 
-# ========== TESTING ==========
-
 if __name__ == "__main__":
-    print("=== Enhanced API Client with E2EE ===\n")
-    
-    api = SecureChatAPI()
-    
-    # Test registration with strong password
-    print("1. Testing Registration with Strong Password")
-    result = api.register("abubakar2024", "abubakar@example.com", "SecurePass123!@#")
-    print(f"   Result: {result['success']}")
-    if not result['success']:
-        print(f"   Error: {result['error']}")
-    
-    # Test login
-    print("\n2. Testing Login")
-    result = api.login("abubakar2024", "SecurePass123!@#")
-    print(f"   Result: {result['success']}")
-    if result['success']:
-        print(f"   Public Key (first 50 chars): {result['data']['public_key'][:50]}...")
-    
-    if api.is_logged_in():
-        # Test getting users
-        print("\n3. Testing Get Users (with key exchange)")
-        users = api.get_users()
-        if users['success']:
-            print(f"   Found {len(users['data'])} users")
-            for user in users['data'][:3]:
-                has_key = api.e2ee.get_chat_key(user['username']) is not None
-                print(f"   - {user['username']}: Encryption key {'✅' if has_key else '❌'}")
-    
-    print("\n✅ API Client tests completed!")
+    print("=== TRUE E2EE API Client ===\n")
+    print("🔐 Private keys stay on client device")
+    print("📤 Only public keys are sent to server\n")
