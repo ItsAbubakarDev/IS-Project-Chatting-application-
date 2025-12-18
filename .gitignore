@@ -1,0 +1,502 @@
+# ============================================
+# Secure Chat Application - .gitignore
+# ============================================
+
+# ============================================
+# CRITICAL SECURITY - NEVER COMMIT THESE!
+# ============================================
+
+# Environment variables (contains SECRET_KEY!)
+.env
+.env.local
+.env.production
+.env.*.local
+
+# SSL Certificates & Private Keys
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+key.pem
+cert.pem
+privkey.pem
+fullchain.pem
+
+# Database files (contains encrypted messages & user data)
+*.db
+*.sqlite
+*.sqlite3
+chat.db
+chat.db-journal
+chat.db-wal
+chat.db-shm
+
+# Backup files
+*.backup
+*.bak
+*.old
+backend.old/
+client.old/
+
+# ============================================
+# Python
+# ============================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+pythonenv*/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff (if using Django in future):
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff (if using Flask):
+instance/
+.webassets-cache
+
+# Scrapy stuff (if used):
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# ============================================
+# IDEs and Editors
+# ============================================
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+.history/
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Atom
+.atom/
+
+# Eclipse
+.project
+.pydevproject
+.settings/
+
+# Spyder
+.spyproject/
+
+# JetBrains
+.idea/
+*.iml
+
+# ============================================
+# Operating System Files
+# ============================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.directory
+.Trash-*
+.nfs*
+
+# ============================================
+# Application Specific
+# ============================================
+
+# Logs
+logs/
+*.log
+log/
+*.log.*
+*.out
+error.log
+access.log
+debug.log
+app.log
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Uploads (if implementing file upload)
+uploads/
+files/
+media/
+static/uploads/
+
+# Cache
+cache/
+.cache/
+*.cache
+
+# Session files
+sessions/
+*.session
+
+# Testing
+test-results/
+test-reports/
+.pytest_cache/
+
+# ============================================
+# Security & Secrets
+# ============================================
+
+# API keys and tokens
+secrets.json
+secrets.yaml
+secrets.yml
+credentials.json
+token.json
+.secrets/
+
+# Private keys
+private_key*
+*_private_key*
+*-private-key*
+
+# Password files
+passwords.txt
+.password
+.passwd
+
+# ============================================
+# Build & Deployment
+# ============================================
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Kubernetes
+*.kubeconfig
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+
+# Ansible
+*.retry
+
+# ============================================
+# Dependencies
+# ============================================
+
+# Node modules (if adding frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# ============================================
+# Documentation
+# ============================================
+
+# Generated documentation
+docs/_build/
+docs/build/
+site/
+
+# ============================================
+# Misc
+# ============================================
+
+# Compressed files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Patches
+*.patch
+*.diff
+
+# Editor backups
+*.bak
+*.swp
+*.swo
+*~
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Directory for instrumented libs generated by jscoverage/JSCover
+lib-cov/
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# nyc test coverage
+.nyc_output/
+
+# Grunt intermediate storage
+.grunt/
+
+# Bower dependency directory
+bower_components/
+
+# Lock files
+*.lock
+
+# ============================================
+# Project Specific Ignores
+# ============================================
+
+# Migration scripts (keep in version control but exclude generated ones)
+# migrations/versions/*.py
+
+# User uploaded content
+user_uploads/
+avatars/
+attachments/
+
+# QR codes (if implementing)
+qrcodes/
+
+# Exports
+exports/
+*.csv
+*.xlsx
+*.pdf
+
+# ============================================
+# Development & Debug
+# ============================================
+
+# Debug dumps
+debug/
+*.dump
+*.dmp
+*.stackdump
+
+# Profiling
+*.prof
+*.lprof
+profiling/
+
+# Memory dumps
+*.hprof
+heapdump*
+
+# ============================================
+# Keep These Files (Don't Ignore)
+# ============================================
+
+# Keep example/template files
+!.env.example
+!config.example.json
+!settings.example.py
+
+# Keep empty directories with .gitkeep
+!.gitkeep
+
+# Keep documentation
+!README.md
+!SECURITY.md
+!SETUP.md
+!QUICKSTART.md
+!IMPROVEMENTS.md
+
+# Keep requirements
+!requirements.txt
+!requirements-dev.txt
+!requirements-prod.txt
+
+# Keep configuration templates
+!docker-compose.yml
+!Dockerfile
+!.dockerignore
+
+# ============================================
+# End of .gitignore
+# ============================================
