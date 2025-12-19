@@ -467,6 +467,53 @@ async def security_status(current_user: User = Depends(get_current_user)):
     }
 
 
+"""
+This allows users to delete their message history
+"""
+
+@app.delete("/messages/history/{username}")
+async def delete_message_history(
+    username: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete all message history between current user and specified user
+    Useful when encryption keys change and old messages can't be decrypted
+    """
+    other_user = db.query(User).filter(User.username == username).first()
+    if not other_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    try:
+        # Delete all messages between these two users
+        deleted_count = db.query(Message).filter(
+            ((Message.sender_id == current_user.id) & (Message.receiver_id == other_user.id)) |
+            ((Message.sender_id == other_user.id) & (Message.receiver_id == current_user.id))
+        ).delete()
+        
+        db.commit()
+        
+        print(f"🗑️  Deleted {deleted_count} messages between {current_user.username} and {username}")
+        
+        return {
+            "status": "success",
+            "message": f"Deleted {deleted_count} messages",
+            "deleted_count": deleted_count
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Error deleting messages: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete message history"
+        )
+
+
 # ========== RUN SERVER ==========
 
 if __name__ == "__main__":

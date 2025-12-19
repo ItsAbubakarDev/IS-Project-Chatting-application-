@@ -1,6 +1,7 @@
 """
-Enhanced Secure Chat Client with E2EE
+Enhanced Secure Chat Client with E2EE - FIXED VERSION
 Features: Per-chat encryption, strong password policy, online status
+INCLUDES: Comprehensive debugging and UI fixes for user list display
 """
 import sys
 from PyQt5.QtWidgets import (
@@ -12,6 +13,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont, QColor
 from datetime import datetime
 from api_client import SecureChatAPI
+import requests
 
 
 # ========== LOGIN WINDOW ==========
@@ -176,7 +178,7 @@ class LoginWindow(QMainWindow):
             self.password_input.setEchoMode(QLineEdit.Password)
     
     def handle_login(self):
-        """Handle login"""
+        """Handle login with server connection test"""
         username = self.username_input.text().strip()
         password = self.password_input.text().strip()
         
@@ -184,19 +186,43 @@ class LoginWindow(QMainWindow):
             self.status_label.setText("❌ Please enter username and password")
             return
         
-        self.status_label.setText("🔄 Logging in...")
+        self.status_label.setText("🔄 Testing server connection...")
         self.login_btn.setEnabled(False)
         self.register_btn.setEnabled(False)
         
         QApplication.processEvents()
         
+        # Test server connection first
+        try:
+            test_response = requests.get(f"{self.api.base_url}/", timeout=5)
+            if test_response.status_code != 200:
+                self.status_label.setText("❌ Server not responding")
+                self.login_btn.setEnabled(True)
+                self.register_btn.setEnabled(True)
+                return
+        except Exception as e:
+            self.status_label.setText(f"❌ Cannot connect to server: {str(e)}")
+            self.login_btn.setEnabled(True)
+            self.register_btn.setEnabled(True)
+            return
+        
+        self.status_label.setText("🔄 Logging in...")
+        QApplication.processEvents()
+        
+        print(f"\n{'='*60}")
+        print(f"LOGIN ATTEMPT: {username}")
+        print(f"{'='*60}")
+        
         result = self.api.login(username, password)
         
         if result["success"]:
+            print(f"✅ Login successful for {username}")
             self.status_label.setText("✅ Login successful!")
             QTimer.singleShot(500, self.open_chat_window)
         else:
-            self.status_label.setText(f"❌ {result['error']}")
+            error_msg = result['error']
+            print(f"❌ Login failed: {error_msg}")
+            self.status_label.setText(f"❌ {error_msg}")
             self.login_btn.setEnabled(True)
             self.register_btn.setEnabled(True)
     
@@ -216,21 +242,32 @@ class LoginWindow(QMainWindow):
         
         QApplication.processEvents()
         
+        print(f"\n{'='*60}")
+        print(f"REGISTRATION ATTEMPT: {username}")
+        print(f"{'='*60}")
+        
         result = self.api.register(username, email, password)
         
         if result["success"]:
+            print(f"✅ Registration successful for {username}")
             self.status_label.setText("✅ Registration successful! Please login.")
             self.email_input.clear()
             self.password_input.clear()
             self.login_btn.setEnabled(True)
             self.register_btn.setEnabled(True)
         else:
-            self.status_label.setText(f"❌ {result['error']}")
+            error_msg = result['error']
+            print(f"❌ Registration failed: {error_msg}")
+            self.status_label.setText(f"❌ {error_msg}")
             self.login_btn.setEnabled(True)
             self.register_btn.setEnabled(True)
     
     def open_chat_window(self):
         """Open chat window"""
+        print(f"\n{'='*60}")
+        print(f"OPENING CHAT WINDOW FOR: {self.api.username}")
+        print(f"{'='*60}\n")
+        
         self.chat_window = ChatWindow(self.api)
         self.chat_window.show()
         self.close()
@@ -239,7 +276,7 @@ class LoginWindow(QMainWindow):
 # ========== CHAT WINDOW ==========
 
 class ChatWindow(QMainWindow):
-    """Enhanced chat window with E2EE indicators"""
+    """Enhanced chat window with E2EE indicators - FIXED VERSION"""
     
     new_message_signal = pyqtSignal(dict)
     
@@ -248,16 +285,30 @@ class ChatWindow(QMainWindow):
         self.api = api
         self.current_chat_user = None
         self.users = []
+        
+        print(f"\n{'='*60}")
+        print(f"INITIALIZING CHAT WINDOW FOR: {api.username}")
+        print(f"{'='*60}\n")
+        
         self.init_ui()
+        
+        print("🔄 Loading initial user list...")
         self.load_users()
+        
+        print("🔄 Connecting WebSocket...")
         self.connect_websocket()
         
         self.new_message_signal.connect(self.handle_incoming_message)
         
         # Auto-refresh user list every 30 seconds
+        print("🔄 Starting auto-refresh timer (30 seconds)...")
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self.load_users)
         self.refresh_timer.start(30000)
+        
+        print(f"\n{'='*60}")
+        print(f"CHAT WINDOW INITIALIZED SUCCESSFULLY")
+        print(f"{'='*60}\n")
     
     def init_ui(self):
         """Initialize UI"""
@@ -352,6 +403,8 @@ class ChatWindow(QMainWindow):
         self.users_list.itemClicked.connect(self.select_user)
         sidebar_layout.addWidget(self.users_list)
         
+        print(f"✅ Users list widget created: {self.users_list}")
+        
         # Logout button
         logout_btn = QPushButton("Logout")
         logout_btn.setStyleSheet("""
@@ -414,29 +467,121 @@ class ChatWindow(QMainWindow):
         central_widget.setLayout(main_layout)
     
     def load_users(self):
-        """Load users with encryption key exchange"""
+        """Load users with encryption key exchange - FIXED VERSION with comprehensive debugging"""
+        print("\n" + "=" * 60)
+        print("LOADING USERS - DEBUG")
+        print("=" * 60)
+        print(f"Current user: {self.api.username}")
+        print(f"Users list widget exists: {self.users_list is not None}")
+        print(f"Users list widget count (before): {self.users_list.count()}")
+        
+        # Get users from API
         result = self.api.get_users()
         
-        if result["success"]:
-            self.users = result["data"]
-            self.users_list.clear()
+        print(f"\nAPI call result:")
+        print(f"  Success: {result.get('success')}")
+        if not result.get('success'):
+            print(f"  Error: {result.get('error')}")
+        
+        if not result["success"]:
+            error_msg = result.get('error', 'Unknown error')
+            print(f"❌ Failed to get users: {error_msg}")
             
-            for user in self.users:
-                has_key = self.api.e2ee.get_chat_key(user['username']) is not None
-                status = "🟢" if user.get('is_online') else "⚫"
-                key_icon = "🔑" if has_key else "❌"
+            # Clear list and show error
+            self.users_list.clear()
+            error_item = QListWidgetItem(f"❌ Error: {error_msg}")
+            error_item.setForeground(QColor("#e74c3c"))
+            self.users_list.addItem(error_item)
+            
+            # Show message box
+            QMessageBox.warning(
+                self,
+                "Error Loading Users",
+                f"Could not load users:\n{error_msg}\n\nPlease check server connection."
+            )
+            print("=" * 60 + "\n")
+            return
+        
+        # Success - we have users data
+        self.users = result["data"]
+        print(f"✅ Received {len(self.users)} users from API")
+        
+        # Clear the list widget
+        self.users_list.clear()
+        print(f"  Cleared users list widget")
+        print(f"  Users list widget count (after clear): {self.users_list.count()}")
+        
+        # Check if there are any users
+        if len(self.users) == 0:
+            print("  ℹ️  No other users found")
+            placeholder = QListWidgetItem("No other users available")
+            placeholder.setForeground(QColor("#7f8c8d"))
+            self.users_list.addItem(placeholder)
+            print(f"  Added placeholder item")
+            print(f"  Users list widget count (after placeholder): {self.users_list.count()}")
+        else:
+            # Add each user to the list
+            print(f"\n  Adding {len(self.users)} users to list widget:")
+            for i, user in enumerate(self.users):
+                username = user.get('username', 'Unknown')
+                is_online = user.get('is_online', False)
+                has_public_key = bool(user.get('public_key'))
                 
-                item_text = f"{status} {user['username']} {key_icon}"
+                # Check if we have encryption key
+                has_chat_key = self.api.e2ee.get_chat_key(username) is not None
+                
+                # Create display text
+                status_icon = "🟢" if is_online else "⚫"
+                key_icon = "🔑" if has_chat_key else "❌"
+                item_text = f"{status_icon} {username} {key_icon}"
+                
+                print(f"    [{i+1}] {username}:")
+                print(f"        online={is_online}")
+                print(f"        has_public_key={has_public_key}")
+                print(f"        has_chat_key={has_chat_key}")
+                print(f"        display_text='{item_text}'")
+                
+                # Create list item
                 item = QListWidgetItem(item_text)
                 
-                if not has_key:
-                    item.setForeground(QColor("#7f8c8d"))
+                # Color code based on key status
+                if not has_chat_key:
+                    item.setForeground(QColor("#7f8c8d"))  # Gray if no key
+                    print(f"        color=gray (no key)")
+                else:
+                    item.setForeground(QColor("#ffffff"))  # White if has key
+                    print(f"        color=white (has key)")
                 
+                # Add to list widget
                 self.users_list.addItem(item)
+                print(f"        ✅ Added to list widget")
+                print(f"        Current widget count: {self.users_list.count()}")
+        
+        print(f"\n✅ User list updated!")
+        print(f"  Final widget count: {self.users_list.count()}")
+        print("=" * 60 + "\n")
+        
+        # Force UI update
+        self.users_list.update()
+        self.users_list.repaint()
+        QApplication.processEvents()
+        
+        print(f"✅ UI update forced, final count: {self.users_list.count()}\n")
     
     def select_user(self, item):
         """Select user for chat"""
-        username = item.text().split()[1]  # Extract username
+        item_text = item.text()
+        print(f"\n📋 User selected: {item_text}")
+        
+        # Extract username (format: "🟢 username 🔑")
+        parts = item_text.split()
+        if len(parts) >= 2:
+            username = parts[1]  # Get the username part
+        else:
+            print(f"⚠️  Could not parse username from: {item_text}")
+            return
+        
+        print(f"   Parsed username: {username}")
         self.current_chat_user = username
         
         # Check if we have encryption key
@@ -446,22 +591,30 @@ class ChatWindow(QMainWindow):
         
         if has_key:
             self.encryption_status.setText("🔒 Encrypted with DH key")
+            print(f"   ✅ Has encryption key")
         else:
             self.encryption_status.setText("⚠️ Setting up encryption...")
+            print(f"   ⚠️  No encryption key, fetching...")
             # Try to get key
             result = self.api.get_user_public_key(username)
             if result["success"]:
                 self.encryption_status.setText("🔒 Encrypted with DH key")
+                print(f"   ✅ Encryption key obtained")
                 self.load_users()  # Refresh to show key icon
+            else:
+                print(f"   ❌ Failed to get encryption key")
         
         self.load_message_history(username)
     
     def load_message_history(self, username: str):
         """Load and decrypt message history"""
+        print(f"\n📜 Loading message history with: {username}")
+        
         result = self.api.get_message_history(username)
         
         if result["success"]:
             messages = result["data"]
+            print(f"   ✅ Loaded {len(messages)} messages")
             self.messages_display.clear()
             
             for msg in messages:
@@ -470,6 +623,8 @@ class ChatWindow(QMainWindow):
                     msg["decrypted_content"],
                     msg["timestamp"]
                 )
+        else:
+            print(f"   ❌ Failed to load messages: {result.get('error')}")
     
     def send_message(self):
         """Send encrypted message"""
@@ -481,9 +636,12 @@ class ChatWindow(QMainWindow):
         if not message_text:
             return
         
+        print(f"\n📤 Sending message to {self.current_chat_user}: {message_text[:50]}...")
+        
         result = self.api.send_message(self.current_chat_user, message_text)
         
         if result["success"]:
+            print(f"   ✅ Message sent successfully")
             self.display_message(
                 self.api.username,
                 message_text,
@@ -491,7 +649,9 @@ class ChatWindow(QMainWindow):
             )
             self.message_input.clear()
         else:
-            QMessageBox.critical(self, "Error", f"Failed to send: {result['error']}")
+            error_msg = result['error']
+            print(f"   ❌ Failed to send: {error_msg}")
+            QMessageBox.critical(self, "Error", f"Failed to send: {error_msg}")
     
     def display_message(self, sender: str, content: str, timestamp: str):
         """Display message in chat"""
@@ -539,6 +699,8 @@ class ChatWindow(QMainWindow):
             content = data.get("decrypted_content", "[Failed to decrypt]")
             timestamp = data.get("timestamp")
             
+            print(f"\n📨 New message from {sender}: {content[:50]}...")
+            
             if sender == self.current_chat_user:
                 self.display_message(sender, content, timestamp)
             
@@ -551,13 +713,17 @@ class ChatWindow(QMainWindow):
     
     def handle_logout(self):
         """Handle logout"""
+        print(f"\n👋 Logging out: {self.api.username}")
         self.api.logout()
         self.close()
+        
+        # Return to login window
         login_window = LoginWindow()
         login_window.show()
     
     def closeEvent(self, event):
         """Handle window close"""
+        print(f"\n🔌 Closing chat window for: {self.api.username}")
         self.api.disconnect_websocket()
         self.refresh_timer.stop()
         event.accept()
@@ -567,6 +733,10 @@ class ChatWindow(QMainWindow):
 
 def main():
     """Main entry point"""
+    print("\n" + "=" * 60)
+    print("SECURE CHAT CLIENT - STARTING")
+    print("=" * 60 + "\n")
+    
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     
@@ -574,8 +744,14 @@ def main():
     import os
     use_ssl = os.getenv("USE_SSL", "false").lower() == "true"
     
+    print(f"SSL Enabled: {use_ssl}")
+    
     login_window = LoginWindow(use_ssl=use_ssl)
     login_window.show()
+    
+    print("\n" + "=" * 60)
+    print("LOGIN WINDOW DISPLAYED")
+    print("=" * 60 + "\n")
     
     sys.exit(app.exec_())
 
